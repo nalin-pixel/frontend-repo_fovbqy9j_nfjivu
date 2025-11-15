@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Play, Star, BookmarkPlus, Search, Film, LogIn, User } from 'lucide-react'
+import { Play, Star, BookmarkPlus, Search, Film, LogIn, User, Shield } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
@@ -79,6 +79,216 @@ function PlayerModal({ open, onClose, movie, onProgress }) {
   )
 }
 
+function AdminPanel({ open, onClose, auth, onDataChanged }) {
+  const [tab, setTab] = useState('movies')
+  const [movies, setMovies] = useState([])
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({ id: null, title: '', original_title: '', year: 2024, genres: 'Action', poster_url: '', description: '', director: '', cast: '', country: 'UZ', source_url: '' })
+
+  const apiFetch = async (url, options = {}) => {
+    const headers = { ...(options.headers || {}), 'Content-Type': 'application/json' }
+    if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`
+    const res = await fetch(url, { ...options, headers })
+    if (!res.ok) throw new Error(await res.text())
+    return res.status === 204 ? null : res.json()
+  }
+
+  const loadMovies = async () => {
+    const data = await fetch(`${API_BASE}/api/movies?limit=100`).then(r=>r.json())
+    setMovies(data)
+  }
+  const loadUsers = async () => {
+    if (!auth) return
+    const data = await apiFetch(`${API_BASE}/api/admin/users`)
+    setUsers(data)
+  }
+
+  useEffect(() => {
+    if (open) {
+      loadMovies()
+      if (auth?.user?.role === 'admin') loadUsers()
+    }
+  }, [open])
+
+  const resetForm = () => setForm({ id: null, title: '', original_title: '', year: 2024, genres: 'Action', poster_url: '', description: '', director: '', cast: '', country: 'UZ', source_url: '' })
+
+  const submitMovie = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const payload = {
+        title: form.title,
+        original_title: form.original_title || form.title,
+        description: form.description || '',
+        year: Number(form.year) || 2024,
+        duration_min: 100,
+        genres: String(form.genres).split(',').map(s=>s.trim()).filter(Boolean),
+        director: form.director || '',
+        cast: String(form.cast).split(',').map(s=>s.trim()).filter(Boolean),
+        country: form.country || 'UZ',
+        poster_url: form.poster_url || 'https://images.unsplash.com/photo-1524985069026-dd778a71c7b4?q=80&w=800&auto=format&fit=crop',
+        trailer_youtube: '',
+        sources: [{ label: 'auto', url: form.source_url || 'https://samplelib.com/lib/preview/mp4/sample-5s.mp4' }],
+        subtitles: [],
+        audio_tracks: ['original'],
+        status: 'active',
+        imdb_rating: 0,
+        avg_rating: 0,
+        views: 0,
+        tags: [],
+      }
+      if (form.id) {
+        await apiFetch(`${API_BASE}/api/movies/${form.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      } else {
+        await apiFetch(`${API_BASE}/api/movies`, { method: 'POST', body: JSON.stringify(payload) })
+      }
+      await loadMovies()
+      onDataChanged?.()
+      resetForm()
+      alert('Saqlandi')
+    } catch (e) {
+      alert('Saqlashda xato: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const editMovie = (m) => {
+    setTab('movies')
+    setForm({
+      id: m.id,
+      title: m.title || '',
+      original_title: m.original_title || '',
+      year: m.year || 2024,
+      genres: (m.genres || []).join(', '),
+      poster_url: m.poster_url || '',
+      description: m.description || '',
+      director: m.director || '',
+      cast: (m.cast || []).join(', '),
+      country: m.country || 'UZ',
+      source_url: (m.sources && m.sources[0]?.url) || ''
+    })
+  }
+
+  const deleteMovie = async (id) => {
+    if (!confirm('O‘chirishni tasdiqlaysizmi?')) return
+    try {
+      await apiFetch(`${API_BASE}/api/movies/${id}`, { method: 'DELETE' })
+      await loadMovies()
+      onDataChanged?.()
+    } catch (e) {
+      alert('O‘chirishda xato: ' + e.message)
+    }
+  }
+
+  const changeRole = async (id, role) => {
+    try {
+      await apiFetch(`${API_BASE}/api/admin/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+      await loadUsers()
+      alert('Rol yangilandi')
+    } catch (e) {
+      alert('Rolni yangilashda xato: ' + e.message)
+    }
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-6xl h-[80vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center gap-3 justify-between">
+          <div className="flex items-center gap-2"><Shield className="w-5 h-5 text-blue-600"/><div className="font-semibold">Admin panel</div></div>
+          <div className="flex items-center gap-2 text-sm">
+            <button className={`px-3 py-1 rounded ${tab==='movies'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTab('movies')}>Kontent</button>
+            <button className={`px-3 py-1 rounded ${tab==='users'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTab('users')}>Foydalanuvchilar</button>
+            <button onClick={onClose} className="px-3 py-1 rounded bg-gray-100">Yopish</button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3">
+          {/* Left: form or list depending on tab */}
+          {tab === 'movies' ? (
+            <div className="border-r p-4 overflow-y-auto">
+              <div className="font-medium mb-3">Film qo‘shish/tahrirlash</div>
+              <form onSubmit={submitMovie} className="space-y-2">
+                <input className="w-full border px-3 py-2 rounded" placeholder="Sarlavha" value={form.title} onChange={e=>setForm({...form, title: e.target.value})} required />
+                <input className="w-full border px-3 py-2 rounded" placeholder="Original sarlavha" value={form.original_title} onChange={e=>setForm({...form, original_title: e.target.value})} />
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="w-full border px-3 py-2 rounded" placeholder="Yil" type="number" value={form.year} onChange={e=>setForm({...form, year: e.target.value})} />
+                  <input className="w-full border px-3 py-2 rounded" placeholder="Mamlakat" value={form.country} onChange={e=>setForm({...form, country: e.target.value})} />
+                </div>
+                <input className="w-full border px-3 py-2 rounded" placeholder="Janrlar (vergul bilan)" value={form.genres} onChange={e=>setForm({...form, genres: e.target.value})} />
+                <input className="w-full border px-3 py-2 rounded" placeholder="Poster URL" value={form.poster_url} onChange={e=>setForm({...form, poster_url: e.target.value})} />
+                <input className="w-full border px-3 py-2 rounded" placeholder="Video URL" value={form.source_url} onChange={e=>setForm({...form, source_url: e.target.value})} />
+                <input className="w-full border px-3 py-2 rounded" placeholder="Rejissor" value={form.director} onChange={e=>setForm({...form, director: e.target.value})} />
+                <input className="w-full border px-3 py-2 rounded" placeholder="Aktorlar (vergul bilan)" value={form.cast} onChange={e=>setForm({...form, cast: e.target.value})} />
+                <textarea className="w-full border px-3 py-2 rounded" rows="3" placeholder="Tavsif" value={form.description} onChange={e=>setForm({...form, description: e.target.value})} />
+                <div className="flex items-center gap-2">
+                  <button disabled={loading} type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">{form.id ? 'Yangilash' : 'Qo‘shish'}</button>
+                  {form.id && (
+                    <button type="button" className="px-3 py-2 rounded bg-gray-100" onClick={resetForm}>Bekor qilish</button>
+                  )}
+                </div>
+              </form>
+            </div>
+          ) : (
+            <div className="border-r p-4 overflow-y-auto">
+              <div className="font-medium mb-3">Foydalanuvchilar</div>
+              <div className="space-y-2">
+                {users.map(u => (
+                  <div key={u.id} className="flex items-center justify-between border rounded p-2">
+                    <div>
+                      <div className="font-medium text-sm">{u.name} <span className="text-gray-500">({u.email})</span></div>
+                      <div className="text-xs text-gray-500">{u.role}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select value={u.role} onChange={e=>changeRole(u.id, e.target.value)} className="border rounded px-2 py-1 text-sm">
+                        <option value="user">user</option>
+                        <option value="moderator">moderator</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Right: list */}
+          <div className="col-span-2 p-4 overflow-y-auto">
+            {tab === 'movies' ? (
+              <div>
+                <div className="font-medium mb-3">Filmlar ro‘yxati</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {movies.map(m => (
+                    <div key={m.id} className="border rounded overflow-hidden">
+                      <div className="flex gap-3 p-2">
+                        <img src={m.poster_url} className="w-16 h-20 object-cover rounded" />
+                        <div className="flex-1">
+                          <div className="font-medium text-sm line-clamp-1">{m.title}</div>
+                          <div className="text-xs text-gray-500">{m.year} • {(m.genres||[]).join(', ')}</div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <button className="text-xs px-2 py-1 rounded bg-blue-600 text-white" onClick={()=>editMovie(m)}>Tahrirlash</button>
+                            <button className="text-xs px-2 py-1 rounded bg-red-600 text-white" onClick={()=>deleteMovie(m.id)}>O‘chirish</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="font-medium mb-3">Foydalanuvchilar statistikasi</div>
+                <div className="text-sm text-gray-600 mb-4">Jami: {users.length} ta</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true)
   const [movies, setMovies] = useState([])
@@ -150,6 +360,10 @@ export default function App() {
     setAuth(null)
   }
 
+  // Admin UI
+  const [showAdmin, setShowAdmin] = useState(false)
+  const refreshHome = () => load()
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-40 backdrop-blur bg-white/70 border-b">
@@ -162,6 +376,11 @@ export default function App() {
           </div>
           {auth ? (
             <div className="flex items-center gap-3">
+              {auth.user.role === 'admin' && (
+                <button onClick={()=>setShowAdmin(true)} className="flex items-center gap-1 text-sm text-blue-700 hover:text-blue-900">
+                  <Shield className="w-4 h-4"/> Admin
+                </button>
+              )}
               <div className="text-sm">Salom, {auth.user.name}</div>
               <button onClick={logout} className="text-sm text-gray-700 hover:text-blue-600">Chiqish</button>
             </div>
@@ -238,6 +457,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <AdminPanel open={showAdmin} onClose={()=>setShowAdmin(false)} auth={auth} onDataChanged={refreshHome} />
     </div>
   )
 }
