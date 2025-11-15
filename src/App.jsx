@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Play, Star, BookmarkPlus, Search, Film, ThumbsUp, Clock } from 'lucide-react'
+import { Play, Star, BookmarkPlus, Search, Film, LogIn, User } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
@@ -33,9 +33,6 @@ function MovieCard({ movie, onPlay, onSave }) {
         <div className="mt-2 flex items-center justify-between">
           <button onClick={() => onPlay(movie)} className="text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded flex items-center gap-1">
             <Play className="w-4 h-4" /> Tomosha qilish
-          </button>
-          <button onClick={() => onSave(movie)} className="text-sm text-gray-700 hover:text-blue-600 flex items-center gap-1">
-            <BookmarkPlus className="w-4 h-4" /> Saqlash
           </button>
         </div>
       </div>
@@ -90,7 +87,12 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [playerOpen, setPlayerOpen] = useState(false)
   const [current, setCurrent] = useState(null)
-  const userId = 'demo-user-1'
+
+  const [auth, setAuth] = useState(() => {
+    const raw = localStorage.getItem('uzb_token')
+    const user = localStorage.getItem('uzb_user')
+    return raw && user ? { token: raw, user: JSON.parse(user) } : null
+  })
 
   const filtered = useMemo(() => {
     if (!query) return movies
@@ -117,14 +119,35 @@ export default function App() {
     setPlayerOpen(true)
   }
 
-  const onSave = async (movie) => {
-    await fetch(`${API_BASE}/api/movies/${movie.id}/watchlist`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }) })
-    alert('Saqlash ro\'yxatiga qo\'shildi/olib tashlandi')
+  const onProgress = async (sec) => {
+    if (!current || !auth) return
+    await fetch(`${API_BASE}/api/movies/${current.id}/progress`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: auth.user.id, position_sec: sec }) })
   }
 
-  const onProgress = async (sec) => {
-    if (!current) return
-    await fetch(`${API_BASE}/api/movies/${current.id}/progress`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, position_sec: sec }) })
+  // ---- Auth minimal UI ----
+  const [showAuth, setShowAuth] = useState(false)
+  const [isLogin, setIsLogin] = useState(true)
+  const [form, setForm] = useState({ name: '', email: '', password: '' })
+  const submitAuth = async (e) => {
+    e.preventDefault()
+    try {
+      const url = isLogin ? `${API_BASE}/api/auth/login` : `${API_BASE}/api/auth/register`
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(isLogin ? { email: form.email, password: form.password } : form) })
+      if (!res.ok) throw new Error('Auth failed')
+      const data = await res.json()
+      setAuth({ token: data.token, user: data.user })
+      localStorage.setItem('uzb_token', data.token)
+      localStorage.setItem('uzb_user', JSON.stringify(data.user))
+      setShowAuth(false)
+    } catch (e) {
+      alert('Xato: kirish/ro‘yxatdan o‘tish bajarilmadi')
+    }
+  }
+
+  const logout = () => {
+    localStorage.removeItem('uzb_token')
+    localStorage.removeItem('uzb_user')
+    setAuth(null)
   }
 
   return (
@@ -135,9 +158,18 @@ export default function App() {
           <div className="font-bold">UzbCinemaHub</div>
           <div className="flex-1" />
           <div className="relative w-full max-w-md">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={query} onChange={(e)=>setQuery(e.target.value)} className="w-full pl-9 pr-3 py-2 rounded-lg border bg-white/80 focus:outline-none" placeholder="Kino, aktyor, rejissyor bo'yicha qidirish" />
+            <input value={query} onChange={(e)=>setQuery(e.target.value)} className="w-full pl-3 pr-3 py-2 rounded-lg border bg-white/80 focus:outline-none" placeholder="Qidirish" />
           </div>
+          {auth ? (
+            <div className="flex items-center gap-3">
+              <div className="text-sm">Salom, {auth.user.name}</div>
+              <button onClick={logout} className="text-sm text-gray-700 hover:text-blue-600">Chiqish</button>
+            </div>
+          ) : (
+            <button onClick={() => { setShowAuth(true); setIsLogin(true) }} className="flex items-center gap-2 text-sm text-gray-700 hover:text-blue-600">
+              <LogIn className="w-4 h-4" /> Kirish
+            </button>
+          )}
         </div>
       </header>
 
@@ -155,7 +187,7 @@ export default function App() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {filtered.map(m => (
-                <MovieCard key={m.id} movie={m} onPlay={onPlay} onSave={onSave} />
+                <MovieCard key={m.id} movie={m} onPlay={onPlay} />
               ))}
             </div>
           )}
@@ -164,7 +196,7 @@ export default function App() {
         <Section title="Eng ko'p ko'rilganlar">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {popular.map(m => (
-              <MovieCard key={m.id} movie={m} onPlay={onPlay} onSave={onSave} />
+              <MovieCard key={m.id} movie={m} onPlay={onPlay} />
             ))}
           </div>
         </Section>
@@ -172,7 +204,7 @@ export default function App() {
         <Section title="Tavsiya qilinganlar">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {top.map(m => (
-              <MovieCard key={m.id} movie={m} onPlay={onPlay} onSave={onSave} />
+              <MovieCard key={m.id} movie={m} onPlay={onPlay} />
             ))}
           </div>
         </Section>
@@ -181,6 +213,31 @@ export default function App() {
       <footer className="py-10 text-center text-sm text-gray-500">© {new Date().getFullYear()} UzbCinemaHub</footer>
 
       <PlayerModal open={playerOpen} onClose={()=>setPlayerOpen(false)} movie={current} onProgress={onProgress} />
+
+      {showAuth && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={()=>setShowAuth(false)}>
+          <div className="bg-white rounded-xl w-full max-w-md overflow-hidden" onClick={e=>e.stopPropagation()}>
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="font-semibold">{isLogin ? 'Kirish' : 'Ro‘yxatdan o‘tish'}</div>
+              <button onClick={()=>setShowAuth(false)} className="text-gray-500">Yopish</button>
+            </div>
+            <form onSubmit={submitAuth} className="p-4 space-y-3">
+              {!isLogin && (
+                <input value={form.name} onChange={e=>setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border rounded" placeholder="Ism" required />
+              )}
+              <input type="email" value={form.email} onChange={e=>setForm({...form, email: e.target.value})} className="w-full px-3 py-2 border rounded" placeholder="Email" required />
+              <input type="password" value={form.password} onChange={e=>setForm({...form, password: e.target.value})} className="w-full px-3 py-2 border rounded" placeholder="Parol" required />
+              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">{isLogin ? 'Kirish' : 'Ro‘yxatdan o‘tish'}</button>
+              <div className="text-center text-sm">
+                {isLogin ? 'Hisob yo‘qmi?' : 'Allaqachon hisob bormi?'}{' '}
+                <button type="button" className="text-blue-600" onClick={()=>setIsLogin(!isLogin)}>
+                  {isLogin ? 'Ro‘yxatdan o‘tish' : 'Kirish'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
